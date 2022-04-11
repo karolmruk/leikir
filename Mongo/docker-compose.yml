@@ -1,0 +1,22 @@
+version: '3.5'
+
+services:
+  mongo:
+    image: mongo:4.2.3
+    restart: always
+    container_name: mongo
+    volumes:
+      - ./data:/data/db
+      - ./mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
+    environment:
+      MONGO_INITDB_DATABASE: cdp
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: mongodb
+    ports:
+      - 27017:27017
+    networks:
+      - mongo
+networks:
+  mongo:
+    name: mongo
+    driver: "bridge"

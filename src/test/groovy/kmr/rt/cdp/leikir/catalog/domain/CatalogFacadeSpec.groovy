@@ -1,18 +1,10 @@
 package kmr.rt.cdp.leikir.catalog.domain
 
 import kmr.rt.cdp.leikir.catalog.domain.dto.Draft
-import kmr.rt.cdp.leikir.catalog.domain.events.PublishEvent
-import kmr.rt.cdp.leikir.catalog.domain.events.UnpublishEvent
 import spock.lang.Specification
 
-import java.time.Clock
-import java.time.Instant
-import java.time.ZoneOffset
-
 class CatalogFacadeSpec extends Specification {
-  Clock clock = Clock.fixed(Instant.EPOCH, ZoneOffset.UTC)
-  FakeApplicationEventPublisher publisher = new FakeApplicationEventPublisher()
-  CatalogFacade gameCatalogFacade = new CatalogConfiguration().create(publisher, clock)
+  CatalogFacade gameCatalogFacade = new CatalogConfiguration().create()
 
   def "I can create draft"() {
     when:
@@ -24,25 +16,33 @@ class CatalogFacadeSpec extends Specification {
   }
 
   def "I can update draft"() {
+    given:
+    var cyberpunk = createCyberpunk()
     when:
-    var key = gameCatalogFacade.updateGameDraft(createCyberpunk().id(), createCyberpunkDto().withPrice(99.00))
+    var key = gameCatalogFacade.updateGameDraft(createCyberpunk(), updateCyberpunkDto())
+    then:
+    key.isPresent()
     and:
-    var draft = gameCatalogFacade.getDraftsDetails(key)
+    key.get().version().value() != cyberpunk.version().value()
+    when:
+    var draft = gameCatalogFacade.getDraftsDetails(key.get())
     then:
     draft.get() == detailsDto(createCyberpunkDto().withPrice(99.00))
+    and:
+    draft.get()
   }
 
   def "I can see both versions drafts"() {
     given:
     var first = gameCatalogFacade.createGameDraft(createCyberpunkDto())
     and:
-    var second = gameCatalogFacade.updateGameDraft(createCyberpunk().id(), createCyberpunkDto().withPrice(99.00))
+    var second = gameCatalogFacade.updateGameDraft(createCyberpunk(), updateCyberpunkDto())
     when:
     var drafts = gameCatalogFacade.getDrafts()
     then:
     drafts.contains(first)
     and:
-    drafts.contains(second)
+    drafts.contains(second.get())
   }
 
   def "I can create multiple drafts"() {
@@ -60,39 +60,35 @@ class CatalogFacadeSpec extends Specification {
     witcherDetails.get() == detailsWitcherDto()
   }
 
-
-  def "Publish event fired"() {
+  def "I can publish draft"() {
     given:
-    var draft = gameCatalogFacade.createGameDraft(createCyberpunkDto())
+    var cyberpunk = gameCatalogFacade.createGameDraft(createCyberpunkDto())
     when:
-    gameCatalogFacade.publish(draft)
+    gameCatalogFacade.publish(cyberpunk)
     then:
-    publisher.getEvents().size() == 1
-    and:
-    publisher.getEvents().contains(new PublishEvent(gameCatalogFacade, clock, draft))
-    and:
-    publisher.getEvents().first().timestamp == clock.millis()
+    gameCatalogFacade.getDraftsDetails(cyberpunk).get().published()
   }
 
-  def "Unpublish event fired"() {
+  def "I can unpublish draft"() {
     given:
-    var draft = gameCatalogFacade.createGameDraft(createCyberpunkDto())
+    var cyberpunk = gameCatalogFacade.createGameDraft(createCyberpunkDto())
     when:
-    gameCatalogFacade.unpublish(draft)
+    gameCatalogFacade.unpublish(cyberpunk)
     then:
-    publisher.getEvents().size() == 1
-    and:
-    publisher.getEvents().contains(new UnpublishEvent(gameCatalogFacade, clock, draft.id()))
-    and:
-    publisher.getEvents().first().timestamp == clock.millis()
+    !gameCatalogFacade.getDraftsDetails(cyberpunk).get().published()
   }
+
 
   private Draft.Create createCyberpunkDto() {
-    return createDto("Cyberpunk 2077", 199.00, "Cyberpunk 2077 is an open-world, action-adventure RPG set in the megalopolis of Night City, where you play as a cyberpunk mercenary wrapped up in a do-or-die fight for survival.")
+    return createDto(1, "Cyberpunk 2077", 199.00, "Cyberpunk 2077 is an open-world, action-adventure RPG set in the megalopolis of Night City, where you play as a cyberpunk mercenary wrapped up in a do-or-die fight for survival.")
+  }
+
+  private Draft.Update updateCyberpunkDto() {
+    return new Draft.Update("Cyberpunk 2077", 99.00, "Cyberpunk 2077 is an open-world, action-adventure RPG set in the megalopolis of Night City, where you play as a cyberpunk mercenary wrapped up in a do-or-die fight for survival.")
   }
 
   private Draft.Create createWitcherDto() {
-    return createDto("The Witcher 3: Wild Hunt", 99.00, "The Witcher: Wild Hunt is a story-driven open world RPG set in a visually stunning fantasy universe full of meaningful choices and impactful consequences.")
+    return createDto(2, "The Witcher 3: Wild Hunt", 99.00, "The Witcher: Wild Hunt is a story-driven open world RPG set in a visually stunning fantasy universe full of meaningful choices and impactful consequences.")
   }
 
   private Draft.Details detailsCyberpunkDto() {
@@ -107,16 +103,16 @@ class CatalogFacadeSpec extends Specification {
     return create(createCyberpunkDto())
   }
 
-  private Draft.Create createDto(String title, double price, String description) {
-    return new Draft.Create(title, price, description)
+  private Draft.Create createDto(long gameId, String title, double price, String description) {
+    return new Draft.Create(gameId, title, price, description)
   }
 
   private Draft.Details detailsDto(Draft.Create from) {
-    return detailsDto(from.title(), from.price(), from.description())
+    return detailsDto(from.gameId(), from.title(), from.price(), from.description(), false)
   }
 
-  private Draft.Details detailsDto(String title, double price, String description) {
-    return new Draft.Details(title, price, description)
+  private Draft.Details detailsDto(long gameId, String title, double price, String description, boolean published) {
+    return new Draft.Details(gameId, title, price, description, published)
   }
 
   private Draft.Key create(Draft.Create dto) {

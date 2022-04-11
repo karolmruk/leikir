@@ -1,12 +1,18 @@
 package kmr.rt.cdp.leikir.catalog.domain;
 
-import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
 
-import java.time.Clock;
-
+@Configuration
 class CatalogConfiguration {
 
-  CatalogFacade create(ApplicationEventPublisher publisher, Clock clock) {
-    return new CatalogFacade(publisher, clock);
+  CatalogFacade create() {
+    CatalogRepository repository = new InMemoryCatalogRepository();
+    return new CatalogFacade(repository, new CatalogFactory());
+  }
+
+  @Bean
+  CatalogFacade catalogEntry(CatalogRepository repository) {
+    return new CatalogFacade(repository, new CatalogFactory());
   }
 }

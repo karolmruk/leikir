@@ -1,54 +1,47 @@
 package kmr.rt.cdp.leikir.catalog.domain;
 
 import kmr.rt.cdp.leikir.catalog.domain.dto.Draft;
-import kmr.rt.cdp.leikir.catalog.domain.events.PublishEvent;
-import kmr.rt.cdp.leikir.catalog.domain.events.UnpublishEvent;
-import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
-import lombok.experimental.FieldDefaults;
-import org.springframework.context.ApplicationEventPublisher;
 
-import java.time.Clock;
-import java.util.*;
+import java.util.List;
+import java.util.Optional;
 
 @RequiredArgsConstructor
-@FieldDefaults(level = AccessLevel.PRIVATE, makeFinal = true)
 public class CatalogFacade {
-  ApplicationEventPublisher applicationEventPublisher;
-  Clock clock;
-  Map<Draft.Key, Draft.Details> drafts = new HashMap<>();
+  private final CatalogRepository repository;
+  private final CatalogFactory factory;
 
   public Draft.Key createGameDraft(Draft.Create draft) {
-    Draft.Key key = new Draft.Key(drafts.size() + 1L, 1);
-    Draft.Details details = new Draft.Details(draft.title(), draft.price(), draft.description());
-    drafts.put(key, details);
-    return key;
+    return repository.save(factory.create(draft)).key();
   }
 
   public List<Draft.Key> getDrafts() {
-    return new ArrayList<>(drafts.keySet());
+    return repository.findAll().stream().map(CatalogEntry::key).toList();
   }
 
   public Optional<Draft.Details> getDraftsDetails(Draft.Key key) {
-    return Optional.ofNullable(drafts.get(key));
+    return repository.findByGroupAndVersion(key.id().value(), key.version().value()).map(CatalogEntry::details);
   }
 
-  public Draft.Key updateGameDraft(Draft.Id id, Draft.Create draft) {
-    Draft.Key key = new Draft.Key(id.value(), calcVersion(id));
-    Draft.Details details = new Draft.Details(draft.title(), draft.price(), draft.description());
-    drafts.put(key, details);
-    return key;
-  }
-
-  private long calcVersion(Draft.Id id) {
-    return drafts.entrySet().stream().filter(key -> key.getKey().id().equals(id)).count() + 1;
+  public Optional<Draft.Key> updateGameDraft(Draft.Key key, Draft.Update draft) {
+    return repository.findByGroupAndVersion(key.id().value(), key.version().value())
+      .map(catalogEntry -> catalogEntry.update(draft))
+      .map(repository::save)
+      .map(CatalogEntry::key);
   }
 
   public void publish(Draft.Key key) {
-    applicationEventPublisher.publishEvent(new PublishEvent(this, clock, key));
+    repository.findByGroup(key.id().value()).stream().peek(CatalogEntry::unpublish).forEach(repository::save);
+    repository.findByGroupAndVersion(key.id().value(), key.version().value()).ifPresent(catalogEntry -> {
+      catalogEntry.publish();
+      repository.save(catalogEntry);
+    });
   }
 
   public void unpublish(Draft.Key key) {
-    applicationEventPublisher.publishEvent(new UnpublishEvent(this, clock, key.id()));
+    repository.findByGroupAndVersion(key.id().value(), key.version().value()).ifPresent(catalogEntry -> {
+      catalogEntry.unpublish();
+      repository.save(catalogEntry);
+    });
   }
 }
